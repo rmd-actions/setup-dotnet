@@ -15,6 +15,10 @@ documentation:
 [Software installed on github hosted runners](https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#supported-software)
 for .NET SDK versions that are currently available.
 
+## What's new in V6
+
+- Migrated action internals to ESM for compatibility with latest `@actions/*` packages. No changes to action inputs, outputs, or behavior.
+
 ## Breaking changes in V5
 
 - Upgraded action from node20 to node24
@@ -29,8 +33,8 @@ See [action.yml](action.yml)
 **Basic**:
 ```yaml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: '8.0.x'
 - run: dotnet build <my project>
@@ -40,9 +44,9 @@ steps:
 **Multiple version installation**:
 ```yml
 steps:
-- uses: actions/checkout@v6
+- uses: actions/checkout@v7
 - name: Setup dotnet
-  uses: actions/setup-dotnet@v5
+  uses: actions/setup-dotnet@v6
   with:
     dotnet-version: | 
       8.0.x
@@ -75,8 +79,8 @@ The optional `dotnet-channel` input specifies the source channel for the install
 **Install latest LTS version:**
 ```yaml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: latest
     dotnet-channel: LTS
@@ -88,9 +92,9 @@ Using the architecture input, it is possible to specify the required .NET SDK ar
 **Example: Install multiple SDK versions for a specific architecture**
 ```yml
 steps:
-- uses: actions/checkout@v6
+- uses: actions/checkout@v7
 - name: Setup dotnet (x86)
-  uses: actions/setup-dotnet@v5
+  uses: actions/setup-dotnet@v6
   with:
     dotnet-version: |
       8.0.x
@@ -107,8 +111,8 @@ The `dotnet-quality` input installs the latest build of the specified quality in
 
 ```yml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: '8.0.x'
     dotnet-quality: 'preview'
@@ -119,8 +123,8 @@ steps:
 
 ```yaml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: latest
     dotnet-channel: LTS
@@ -134,8 +138,8 @@ steps:
 
 ```yml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     global-json-file: csharp/global.json
 - run: dotnet build <my project>
@@ -153,8 +157,8 @@ The action searches for [NuGet Lock files](https://learn.microsoft.com/nuget/con
 
 ```yaml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: 8.x
     cache: true
@@ -178,8 +182,8 @@ steps:
 env:
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: 8.x
     cache: true
@@ -192,8 +196,8 @@ steps:
 env:
   NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: 8.x
     cache: true
@@ -212,9 +216,9 @@ jobs:
         dotnet: [ '8.0.x', '9.0.x', '10.0.x' ]
     name: Dotnet ${{ matrix.dotnet }} sample
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ matrix.dotnet }}
       - name: Execute dotnet
@@ -232,9 +236,9 @@ jobs:
         dotnet: [ '8.0.x', '9.0.x', '10.0.x' ]
     name: Dotnet ${{ matrix.dotnet }} sample
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         id: stepid
         with:
           dotnet-version: ${{ matrix.dotnet }}
@@ -250,8 +254,8 @@ jobs:
 ### Github Package Registry (GPR)
 ```yml
 steps:
-- uses: actions/checkout@v6
-- uses: actions/setup-dotnet@v5
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: '8.0.x'
     source-url: https://nuget.pkg.github.com/<owner>/index.json
@@ -266,7 +270,7 @@ steps:
 
 ### Azure Artifacts
 ```yml
-- uses: actions/setup-dotnet@v5
+- uses: actions/setup-dotnet@v6
   with:
     source-url: https://pkgs.dev.azure.com/<your-organization>/_packaging/<your-feed-name>/nuget/v3/index.json
   env:
@@ -277,7 +281,7 @@ steps:
 
 ### nuget.org
 ```yml
-- uses: actions/setup-dotnet@v5
+- uses: actions/setup-dotnet@v6
   with:
     dotnet-version: 8.0.x
 - name: Publish the package to nuget.org
@@ -294,7 +298,7 @@ The `workloads` input allows you to install .NET workloads as part of the SDK se
 steps:
 - uses: actions/checkout@v5
 - name: Setup .NET with workloads
-  uses: actions/setup-dotnet@v5
+  uses: actions/setup-dotnet@v6
   with:
     dotnet-version: '9.0.x'
     workloads: workload1, workload2  # Specify the workloads required for the project, such as wasm-tools, maui, etc.
@@ -316,7 +320,7 @@ Using the **dotnet-version** output it's possible to get the installed by the ac
 In case of a single version installation, the `dotnet-version` output contains the version that is installed by the action.
 
 ```yaml
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       id: stepid
       with:
         dotnet-version: 8.0.416
@@ -328,7 +332,7 @@ In case of a single version installation, the `dotnet-version` output contains t
 In case of a multiple version installation, the `dotnet-version` output contains the latest version that is installed by the action.
 
 ```yaml
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       id: stepid
       with:
         dotnet-version: | 
@@ -341,7 +345,7 @@ In case of a multiple version installation, the `dotnet-version` output contains
 When the `dotnet-version` input is used along with the `global-json-file` input, the `dotnet-version` output contains the version resolved from the `global.json`.
 
 ```yaml
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       id: stepid
       with:
         dotnet-version: | 
@@ -381,8 +385,8 @@ build:
     DOTNET_INSTALL_DIR: "path/to/directory"
     NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
   steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/checkout@v7
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: '8.0.x'
         cache: true
