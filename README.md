@@ -5,7 +5,7 @@
 
 This action sets up a [.NET CLI](https://github.com/dotnet/sdk) environment for use in actions by:
 
-- optionally downloading and caching a version(s) of dotnet by SDK version(s) and adding to PATH
+- optionally download and install the requested .NET SDK version(s) and add them to the PATH
 - registering problem matchers for error output
 - setting up authentication to private package sources like GitHub Packages
 
@@ -105,7 +105,7 @@ steps:
 
 ## Using the `dotnet-quality` input
 
-The `dotnet-quality` input installs the latest build of the specified quality in the channel. Supported values: `daily`, `preview`, `ga`.
+The `dotnet-quality` input installs the latest build of the specified quality in the channel. Supported values: `daily`, `preview`, `ga`. For more details about quality options, see the [official .NET documentation](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-install-script#options).
 
 > **Note**: When used with a specific SDK version, `dotnet-quality` supports only `A.B`, `A.B.x`, `A`, `A.x`, and `A.B.Cxx` formats where the major version is higher than 5. For all other formats, `dotnet-quality` will be ignored.
 
