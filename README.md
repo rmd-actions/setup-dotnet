@@ -5,7 +5,7 @@
 
 This action sets up a [.NET CLI](https://github.com/dotnet/sdk) environment for use in actions by:
 
-- optionally downloading and caching a version(s) of dotnet by SDK version(s) and adding to PATH
+- optionally download and install the requested .NET SDK version(s) and add them to the PATH
 - registering problem matchers for error output
 - setting up authentication to private package sources like GitHub Packages
 
@@ -106,6 +106,20 @@ steps:
 ## Using the `dotnet-quality` input
 
 The `dotnet-quality` input installs the latest build of the specified quality in the channel. Supported values: `daily`, `preview`, `ga`. For more details about quality options, see the [official .NET documentation](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-install-script#options).
+
+> **Important**: `dotnet-quality` is a single input shared across all versions listed in `dotnet-version` for the same step (and is only applied where supported by the version format), so per-version quality is not supported. For example, setting `dotnet-quality: preview` for `10.0.x` and `11.0.x` resolves both versions as previews. To install a released SDK alongside a preview SDK, use separate steps:
+
+```yaml
+steps:
+- uses: actions/setup-dotnet@v6
+  with:
+    dotnet-version: '10.0.x'
+
+- uses: actions/setup-dotnet@v6
+  with:
+    dotnet-version: '11.0.x'
+    dotnet-quality: 'preview'
+```
 
 > **Note**: When used with a specific SDK version, `dotnet-quality` supports only `A.B`, `A.B.x`, `A`, `A.x`, and `A.B.Cxx` formats where the major version is higher than 5. For all other formats, `dotnet-quality` will be ignored.
 
