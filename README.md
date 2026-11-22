@@ -53,15 +53,41 @@ steps:
       9.0.x
 - run: dotnet build <my project>
 ```
+
+## Installing additional runtimes
+
+The `dotnet-runtime` input allows you to install .NET runtimes separately from SDKs. This is useful for multi-targeting scenarios where you need one SDK version but multiple runtime versions.
+
+When `dotnet-runtime` is specified, both the .NET Runtime (Microsoft.NETCore.App) and the ASP.NET Core Runtime (Microsoft.AspNetCore.App) are installed for each specified version. Before .NET Core 2.1, only the base runtime is installed.
+
+For exact preview/RC versions, release metadata selects the matching ASP.NET Core build. If the mapping is unavailable, the action warns and tries the same exact version; installer failures remain fatal. `dotnet-quality` continues to apply to both SDKs and runtimes.
+
+`dotnet-runtime` doesn't change how the SDK is selected, so it doesn't suppress the SDK installation from `global.json`. For example, if only `dotnet-runtime` is set and the repository root contains a `global.json` file, the SDK version specified in that file is installed as well, and the `dotnet-version` output contains that SDK version.
+
+**Example: Install SDK 10 with runtimes 8 and 9**:
+```yml
+steps:
+- uses: actions/checkout@v7
+- name: Setup dotnet
+  uses: actions/setup-dotnet@v6
+  with:
+    dotnet-version: '10.0.x'
+    dotnet-runtime: |
+      8.0.x
+      9.0.x
+- run: dotnet build <my project>
+- run: dotnet test <my project>
+```
+
 ## Supported version syntax
 
-The `dotnet-version` input supports following syntax:
+The `dotnet-version` and `dotnet-runtime` inputs support the following syntax:
 
-- **A.B.C** (e.g 9.0.308, 10.0.100-preview.1.25120.13) - installs exact version of .NET SDK
-- **A.B** or **A.B.x** (e.g. 8.0, 8.0.x) - installs the latest patch version of .NET SDK on the channel `8.0`, including prerelease versions (preview, rc)
+- **A.B.C** (e.g 9.0.308 for an SDK, 9.0.9 for a runtime, 10.0.100-preview.1.25120.13) - installs exact version of .NET SDK or runtime
+- **A.B** or **A.B.x** (e.g. 8.0, 8.0.x) - installs the latest patch version on the channel `8.0`, including prerelease versions (preview, rc)
 - **A** or **A.x** (e.g. 8, 8.x) - installs the latest minor version of the specified major tag, including prerelease versions (preview, rc)
-- **A.B.Cxx** (e.g. 8.0.4xx) - available since `.NET 5.0` release. Installs the latest version of the specific SDK release, including prerelease versions (preview, rc). 
-- **latest** - dynamically resolves to the highest active .NET SDK version. By default, it installs the latest **stable (GA)** version (excluding previews and end-of-life releases). Can be combined with `dotnet-channel` and `dotnet-quality`.
+- **A.B.Cxx** (e.g. 8.0.4xx) - `dotnet-version` only, available since `.NET 5.0` release. Installs the latest version of the specific SDK feature band, including prerelease versions (preview, rc). Feature bands apply only to SDKs, so `dotnet-runtime` rejects this syntax; use **A.B** or **A.B.x** (e.g. 8.0.x) for the latest runtime patch instead. 
+- **latest** - dynamically resolves to the highest active .NET version. By default, it installs the latest **stable (GA)** version (excluding previews and end-of-life releases). For both `dotnet-version` and `dotnet-runtime`, it can be combined with `dotnet-channel` and `dotnet-quality`.
 
 ## Using with `dotnet-channel` input
 
@@ -74,7 +100,7 @@ The optional `dotnet-channel` input specifies the source channel for the install
 | `A.B` (e.g. `8.0`) | A specific release channel |
 | `A.B.Cxx` (e.g. `8.0.1xx`) | A specific SDK release (available since 5.0) |
 
-> **Note**: The `dotnet-channel` input is only applied when `dotnet-version` is set to `latest`. If used with a specific version, a warning will be logged and the channel input will be ignored.
+> **Note**: The `dotnet-channel` input applies to `latest` entries in `dotnet-version` or `dotnet-runtime`; otherwise it is ignored with a warning. For `dotnet-runtime`, an `A.B.Cxx` channel uses its `A.B` channel (e.g. `8.0.1xx` installs the latest `8.0` runtime), without affecting SDK installation.
 
 **Install latest LTS version:**
 ```yaml
@@ -85,6 +111,21 @@ steps:
     dotnet-version: latest
     dotnet-channel: LTS
 ```
+
+## Using the `skip-lts-prepass` input
+
+By default, `setup-dotnet` installs a minimal LTS runtime before installing the requested `dotnet-version`, to guarantee a stable `dotnet` executable is available. If your workflow doesn't need this safeguard (for example, the runner image already has a `dotnet` executable, or you're on a clean self-hosted/container environment and want to avoid the extra download), set `skip-lts-prepass: true` to install only the requested version.
+
+```yaml
+steps:
+- uses: actions/checkout@v7
+- uses: actions/setup-dotnet@v6
+  with:
+    dotnet-version: '9.0.x'
+    skip-lts-prepass: true
+```
+
+> **Note**: Setting skip-lts-prepass: true skips the LTS runtime pre-pass, so the action won't proactively install the latest LTS runtime. The existing dotnet executable and host components will be used if present; on a clean machine, they will come from the requested SDK installation. Consequently, dotnet --info may report a different Host: Version than when the pre-pass runs.
 
 ## Using the `architecture` input
 Using the architecture input, it is possible to specify the required .NET SDK architecture. Possible values:  `x64`, `x86`, `arm64`, `amd64`, `arm`, `s390x`, `ppc64le`, `riscv64`. If the input is not specified, the architecture defaults to the host OS architecture (not all of the architectures are available on all platforms).
@@ -312,7 +353,7 @@ The `workloads` input allows you to install .NET workloads as part of the SDK se
 
 ```yaml
 steps:
-- uses: actions/checkout@v5
+- uses: actions/checkout@v7
 - name: Setup .NET with workloads
   uses: actions/setup-dotnet@v6
   with:
@@ -322,6 +363,31 @@ steps:
 ```
 
 > **Note**: Ensure workloads are compatible with your runner's OS, architecture, and .NET SDK version before enabling workload installation. Some workloads may require additional installation time due to large toolchain downloads.
+
+## Using the `check-latest` input
+
+By default (`check-latest: true`) the action resolves and installs the latest version matching the request online, which is the historical behavior. With `check-latest: false` it first looks for an SDK already installed under [`DOTNET_INSTALL_DIR`](#environment-variables) and reuses it, skipping SDK resolution and download — useful for air-gapped or preloaded runners (the `cache` and `workloads` inputs still use the network). If none matches, it installs online as usual.
+
+```yaml
+steps:
+- uses: actions/checkout@v7
+- name: Reuse a preinstalled SDK when available
+  uses: actions/setup-dotnet@v6
+  with:
+    dotnet-version: '8.0.x'
+    check-latest: false
+- run: dotnet build <my project>
+```
+
+An installed SDK is reused only when it matches the requested spec (`A.B.C`, `A.B`, `A.B.x`, `A.B.Cxx`, `A`, `A.x` or `latest`; `x`, `X` and `*` interchange except in a feature band, which is lowercase `Cxx`), satisfies `dotnet-quality`, is not older than the `sdk.version` declared in `global.json`, and sits next to a runnable `dotnet` executable. As online, `dotnet-quality` is ignored for a full `A.B.C` request, so such a request always resolves to a GA SDK. Cross-architecture requests, `latest` with an `LTS` or `STS` channel, and a bare wildcard always install online.
+
+When the request comes from `global.json`, the SDK is picked the way the .NET resolver picks one: `latestPatch`, `latestFeature`, `latestMinor` and `latestMajor` take the **highest** SDK the policy allows, while `feature`, `minor` and `major` roll forward to the **nearest** higher feature band, minor or major and then take its latest patch. `patch` — the default when `rollForward` is omitted — prefers the declared version, otherwise the latest patch in its band. `disable` and a prerelease `sdk.version` require an exact match, and `allowPrerelease` is not used: `dotnet-quality` is the only prerelease control.
+
+`check-latest: false` also reuses matching runtime pairs, including those installed by an SDK. Reuse requires each framework's `.deps.json` and a runnable `dotnet` executable; a preview ASP.NET Core runtime pairs with the .NET runtime named in its `runtimeconfig.json`, and before .NET Core 2.1, only the base framework is required. Incomplete pairs, cross-architecture requests, LTS/STS channels and bare wildcards use the online path, so this is not a guarantee of offline operation. The online installer skips versions that are already present, so falling back does not repair a damaged installation.
+
+### Setting `check-latest` from the environment
+
+When the input is not set, the action reads the `DOTNET_CHECK_LATEST` environment variable (`true` or `false`, case-insensitive; an unsupported value warns and is ignored), which covers workflows you cannot edit. Setting it on a self-hosted runner alongside SDKs preinstalled under [`DOTNET_INSTALL_DIR`](#environment-variables) lets those workflows run without reaching `aka.ms`, `builds.dotnet.microsoft.com` or `ci.dot.net`. It applies to every job on that runner, so a dedicated runner is recommended; any workflow can still override it with an explicit `check-latest` input.
 
 # Outputs and environment variables
 
@@ -381,6 +447,7 @@ Some environment variables may be necessary for your particular case or to impro
 | **Env.variable**      | **Description** | **Default value** |
 | ----------- | ----------- | ----------- |
 | DOTNET_INSTALL_DIR      |Specifies a directory where .NET SDKs should be installed by the action.|*default value for each OS* |
+| DOTNET_CHECK_LATEST |Fallback for the [`check-latest`](#setting-check-latest-from-the-environment) input, for workflows that cannot set it. Ignored when the input is set.|*true*|
 | DOTNET_NOLOGO      |Removes logo and telemetry message from first run of dotnet cli|*false*|
 | DOTNET_CLI_TELEMETRY_OPTOUT   |Opt-out of telemetry being sent to Microsoft|*false*|
 | DOTNET_MULTILEVEL_LOOKUP   |Configures whether the global install location is used as a fall-back|*true*|
@@ -413,7 +480,13 @@ You can also set `DOTNET_INSTALL_DIR` to a value based on runtime variables, suc
     - name: Set DOTNET_INSTALL_DIR
       run: echo "DOTNET_INSTALL_DIR=$HOME/.dotnet" >> $GITHUB_ENV
 ```
-> **Note**: On some self-hosted or large Linux runners, installing .NET under the default `/usr/share/dotnet` location may fail due to insufficient permissions. To ensure successful installation, set `DOTNET_INSTALL_DIR` to a user-writable path.
+> **Note**: On some self-hosted, larger or containerized runners the default location is not writable by the current user, and the installation fails with a permission error. The action resolves the install directory in this order:
+>
+> 1. `DOTNET_INSTALL_DIR`, when set. It is always honored and never probed.
+> 2. The default location for the runner OS, when it is writable.
+> 3. `.dotnet` in the current user's home directory, for example `/home/runner/.dotnet` or `C:\Users\runneradmin\.dotnet`.
+>
+> Runners that can write to the default location are unaffected. When the fallback is used, `DOTNET_ROOT` and `PATH` point at the home directory, so .NET preinstalled under the system location is no longer picked up. Set `DOTNET_INSTALL_DIR` explicitly to pin the location. If no writable location is found, the action warns and keeps the default, so the installation is likely to fail.
 
 ## Recommended permissions
 

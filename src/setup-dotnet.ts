@@ -31,6 +31,8 @@ type SupportedArchitecture = (typeof supportedArchitectures)[number];
 
 export type QualityOptions = (typeof qualityOptions)[number] | '';
 
+const CHECK_LATEST_ENV_VAR = 'DOTNET_CHECK_LATEST';
+
 function isValidChannel(channel: string): boolean {
   const upper = channel.toUpperCase();
   if (upper === 'LTS' || upper === 'STS') return true;
@@ -47,6 +49,7 @@ export async function run() {
     //
     // dotnet-version is optional, but needs to be provided for most use cases.
     // If supplied, install / use from the tool cache.
+    // dotnet-runtime is optional and allows installing runtime-only versions.
     // global-version-file may be specified to point to a specific global.json
     // and will be used to install an additional version.
     // If not supplied, look for version in ./global.json.
@@ -54,11 +57,28 @@ export async function run() {
     // Proxy, auth, (etc) are still set up, even if no version is identified
     //
     const versions = core.getMultilineInput('dotnet-version');
+    const explicitVersions = new Set(versions);
+    const globalJsonConstraints = new Map<
+      string,
+      {minimumVersion: string; rollForward?: string}
+    >();
+    const addVersionFromGlobalJson = (globalJsonPath: string) => {
+      const {version, minimumVersion, rollForward} =
+        getVersionFromGlobalJson(globalJsonPath);
+      versions.push(version);
+      const isRedundantExplicitPin =
+        explicitVersions.has(version) && version === minimumVersion;
+      if (minimumVersion && !isRedundantExplicitPin) {
+        globalJsonConstraints.set(version, {minimumVersion, rollForward});
+      }
+    };
+    const runtimeVersions = core.getMultilineInput('dotnet-runtime');
     const installedDotnetVersions: (string | null)[] = [];
     const architecture = getArchitectureInput();
+    const checkLatest = getCheckLatestInput();
     let dotnetChannel = core.getInput('dotnet-channel');
 
-    const isLatestRequested = versions.some(
+    const isLatestRequested = [...versions, ...runtimeVersions].some(
       version => version && version.toLowerCase() === 'latest'
     );
     if (dotnetChannel && !isValidChannel(dotnetChannel)) {
@@ -74,7 +94,7 @@ export async function run() {
       }
     } else if (dotnetChannel && !isLatestRequested) {
       core.warning(
-        `The 'dotnet-channel' input is only supported when 'dotnet-version' is set to 'latest'.`
+        `The 'dotnet-channel' input is only supported when 'dotnet-version' or 'dotnet-runtime' is set to 'latest'.`
       );
       dotnetChannel = '';
     }
@@ -87,7 +107,7 @@ export async function run() {
           `The specified global.json file '${globalJsonFileInput}' does not exist`
         );
       }
-      versions.push(getVersionFromGlobalJson(globalJsonPath));
+      addVersionFromGlobalJson(globalJsonPath);
     }
 
     if (!versions.length) {
@@ -95,46 +115,49 @@ export async function run() {
       core.debug('No version found, trying to find version from global.json');
       const globalJsonPath = path.join(process.cwd(), 'global.json');
       if (fs.existsSync(globalJsonPath)) {
-        versions.push(getVersionFromGlobalJson(globalJsonPath));
-      } else {
+        addVersionFromGlobalJson(globalJsonPath);
+      } else if (!runtimeVersions.length) {
         core.info(
           `The global.json wasn't found in the root directory. No .NET version will be installed.`
         );
       }
     }
 
-    if (versions.length) {
-      const quality = core.getInput('dotnet-quality') as QualityOptions;
+    const quality = core.getInput('dotnet-quality') as QualityOptions;
 
-      if (quality && !qualityOptions.includes(quality)) {
-        throw new Error(
-          `Value '${quality}' is not supported for the 'dotnet-quality' option. Supported values are: daily, preview, ga.`
-        );
-      }
+    if (
+      (versions.length || runtimeVersions.length) &&
+      quality &&
+      !qualityOptions.includes(quality)
+    ) {
+      throw new Error(
+        `Value '${quality}' is not supported for the 'dotnet-quality' option. Supported values are: daily, preview, ga.`
+      );
+    }
+
+    if (versions.length) {
+      const skipLtsPrepass = core.getBooleanInput('skip-lts-prepass');
 
       let dotnetInstaller: DotnetCoreInstaller;
       const uniqueVersions = new Set<string>(
         versions.map(v => (v.toLowerCase() === 'latest' ? 'latest' : v))
       );
       for (const version of uniqueVersions) {
+        const constraint = globalJsonConstraints.get(version);
         dotnetInstaller = new DotnetCoreInstaller(
           version,
           quality,
           architecture,
-          version.toLowerCase() === 'latest' ? dotnetChannel : undefined
+          version.toLowerCase() === 'latest' ? dotnetChannel : undefined,
+          checkLatest,
+          constraint?.minimumVersion,
+          constraint?.rollForward,
+          skipLtsPrepass
         );
         const installedVersion = await dotnetInstaller.installDotnet();
         installedDotnetVersions.push(installedVersion);
       }
-      if (
-        architecture &&
-        normalizeArch(architecture) !== normalizeArch(os.arch())
-      ) {
-        process.env['DOTNET_INSTALL_DIR'] = path.join(
-          DotnetInstallDir.dirPath,
-          architecture
-        );
-      }
+      setDotnetInstallDir(architecture);
       DotnetInstallDir.addToPath();
 
       const workloadsInput = core.getInput('workloads');
@@ -158,6 +181,30 @@ export async function run() {
             );
           }
         }
+      }
+    }
+
+    if (runtimeVersions.length) {
+      const uniqueRuntimeVersions = new Set<string>(
+        runtimeVersions.map(v => (v.toLowerCase() === 'latest' ? 'latest' : v))
+      );
+      // Runtimes have no SDK feature bands, so A.B.Cxx uses its A.B channel.
+      const runtimeChannel = dotnetChannel.replace(/^(\d+\.\d+)\.\dxx$/, '$1');
+      for (const runtimeVersion of uniqueRuntimeVersions) {
+        const dotnetInstaller = new DotnetCoreInstaller(
+          runtimeVersion,
+          quality,
+          architecture,
+          runtimeVersion === 'latest' ? runtimeChannel : undefined,
+          checkLatest
+        );
+        await dotnetInstaller.installRuntime();
+      }
+      // installRuntime() resets DOTNET_INSTALL_DIR to the base directory.
+      setDotnetInstallDir(architecture);
+      // The SDK installation has already added the same directory to PATH.
+      if (!versions.length) {
+        DotnetInstallDir.addToPath();
       }
     }
 
@@ -186,6 +233,18 @@ export async function run() {
   }
 }
 
+function setDotnetInstallDir(architecture: SupportedArchitecture | ''): void {
+  if (
+    architecture &&
+    normalizeArch(architecture) !== normalizeArch(os.arch())
+  ) {
+    process.env['DOTNET_INSTALL_DIR'] = path.join(
+      DotnetInstallDir.dirPath,
+      architecture
+    );
+  }
+}
+
 function getArchitectureInput(): SupportedArchitecture | '' {
   const raw = (core.getInput('architecture') || '').trim();
   if (!raw) return '';
@@ -200,8 +259,51 @@ function getArchitectureInput(): SupportedArchitecture | '' {
   );
 }
 
-function getVersionFromGlobalJson(globalJsonPath: string): string {
+function getCheckLatestInput(): boolean {
+  if ((core.getInput('check-latest') || '').trim()) {
+    return core.getBooleanInput('check-latest');
+  }
+
+  const rawEnvValue = (process.env[CHECK_LATEST_ENV_VAR] || '').trim();
+  if (rawEnvValue) {
+    const envValue = rawEnvValue.toLowerCase();
+    if (envValue === 'true' || envValue === 'false') {
+      core.debug(
+        `The 'check-latest' option is set to '${envValue}' by the ${CHECK_LATEST_ENV_VAR} environment variable.`
+      );
+      return envValue === 'true';
+    }
+    core.warning(
+      `Value '${rawEnvValue}' is not supported for the ${CHECK_LATEST_ENV_VAR} environment variable. Supported values are: true, false. The 'check-latest' option falls back to 'true'.`
+    );
+  }
+
+  return true;
+}
+
+interface GlobalJsonVersion {
+  version: string;
+  minimumVersion?: string;
+  rollForward?: string;
+}
+
+const ROLL_FORWARD_POLICIES = [
+  'patch',
+  'feature',
+  'minor',
+  'major',
+  'latestPatch',
+  'latestFeature',
+  'latestMinor',
+  'latestMajor'
+];
+
+const versionPattern = /^\d+\.\d+\.[1-9]\d{2,}$/;
+
+function getVersionFromGlobalJson(globalJsonPath: string): GlobalJsonVersion {
   let version = '';
+  let minimumVersion: string | undefined;
+  let rollForwardPolicy: string | undefined;
   const globalJson = JSON5.parse(
     // .trim() is necessary to strip BOM https://github.com/nodejs/node/issues/20649
     fs.readFileSync(globalJsonPath, {encoding: 'utf8'}).trim(),
@@ -215,7 +317,6 @@ function getVersionFromGlobalJson(globalJsonPath: string): string {
     version = globalJson.sdk.version;
     const rollForward = globalJson.sdk.rollForward;
     if (rollForward && !semver.prerelease(version)) {
-      const versionPattern = /^\d+\.\d+\.[1-9]\d{2,}$/;
       if (!versionPattern.test(version)) {
         throw new Error(
           `Version '${version}' is not valid for the 'sdk.version' value in global.json. ` +
@@ -244,9 +345,21 @@ function getVersionFromGlobalJson(globalJsonPath: string): string {
           version = `${major}.${minor}.${feature}xx`;
           break;
       }
+
+      if (ROLL_FORWARD_POLICIES.includes(rollForward)) {
+        minimumVersion = globalJson.sdk.version;
+        rollForwardPolicy = rollForward;
+      }
+    } else if (
+      !rollForward &&
+      !semver.prerelease(version) &&
+      versionPattern.test(version)
+    ) {
+      minimumVersion = version;
+      rollForwardPolicy = 'patch';
     }
   }
-  return version;
+  return {version, minimumVersion, rollForward: rollForwardPolicy};
 }
 
 function outputInstalledVersion(
